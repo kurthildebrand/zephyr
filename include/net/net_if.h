@@ -192,6 +192,9 @@ enum net_if_flag {
 
 	/** Interface supports IPv6 */
 	NET_IF_IPV6,
+	
+	/** Interface supports hyperspace routing */
+	NET_IF_HYPERSPACE,
 
 /** @cond INTERNAL_HIDDEN */
 	/* Total number of flags - must be at the end of the enum */

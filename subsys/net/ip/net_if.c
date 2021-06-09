@@ -2216,11 +2216,15 @@ struct net_if_ipv6_prefix *net_if_ipv6_prefix_add(struct net_if *iface,
 
 		NET_DBG("[%d] interface %p prefix %s/%d added", i, iface,
 			log_strdup(net_sprint_ipv6_addr(prefix)), len);
+			
+		void* ptr = &ipv6->prefix[i];
 
-		net_mgmt_event_notify_with_info(
-			NET_EVENT_IPV6_PREFIX_ADD, iface,
-			&ipv6->prefix[i].prefix, sizeof(struct in6_addr));
-
+		net_mgmt_event_notify_with_info(NET_EVENT_IPV6_PREFIX_ADD, iface, &ptr, sizeof(ptr));
+		
+		// net_mgmt_event_notify_with_info(
+		// 	NET_EVENT_IPV6_PREFIX_ADD, iface,
+		// 	&ipv6->prefix[i].prefix, sizeof(struct in6_addr));
+		
 		ifprefix = &ipv6->prefix[i];
 		goto out;
 	}

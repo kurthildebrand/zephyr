@@ -128,8 +128,10 @@ extern "C" {
  * @param field the name of the field within the struct @p ptr points to
  * @return a pointer to the structure that contains @p ptr
  */
+#if !defined(CONTAINER_OF)
 #define CONTAINER_OF(ptr, type, field) \
 	((type *)(((char *)(ptr)) - offsetof(type, field)))
+#endif
 
 /**
  * @brief Value of @p x rounded up to the next multiple of @p align,

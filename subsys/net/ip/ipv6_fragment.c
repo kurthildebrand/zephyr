@@ -245,7 +245,7 @@ static void reassemble_packet(struct net_ipv6_reassembly *reass)
 	/* We start from 2nd packet which is then appended to
 	 * the first one.
 	 */
-	for (i = 1; i < NET_IPV6_FRAGMENTS_MAX_PKT; i++) {
+	for (i = 1; i < NET_IPV6_FRAGMENTS_MAX_PKT && reass->pkt[i]; i++) {
 		int removed_len;
 
 		pkt = reass->pkt[i];
@@ -303,6 +303,9 @@ static void reassemble_packet(struct net_ipv6_reassembly *reass)
 		NET_ERR("Failed to remove fragment header");
 		goto error;
 	}
+	
+	/* NOTE: added to support hyperspace routing. */
+	net_pkt_cursor_init(pkt);
 
 	/* This one updates the previous header's nexthdr value */
 	if (net_pkt_skip(pkt, net_pkt_ipv6_hdr_prev(pkt)) ||
@@ -365,30 +368,24 @@ void net_ipv6_frag_foreach(net_ipv6_frag_cb_t cb, void *user_data)
  */
 static bool fragment_verify(struct net_ipv6_reassembly *reass)
 {
-	uint16_t offset;
-	int i, prev_len;
+	uint32_t offset   = 0;
+	uint32_t len      = 0;
+	uint32_t prev_len = 0;
+	int i;
 
-	prev_len = net_pkt_get_len(reass->pkt[0]);
-	offset = net_pkt_ipv6_fragment_offset(reass->pkt[0]);
-
-	NET_DBG("pkt %p offset %u", reass->pkt[0], offset);
-
-	if (offset != 0U) {
-		return false;
-	}
-
-	for (i = 1; i < NET_IPV6_FRAGMENTS_MAX_PKT; i++) {
+	for (i = 0; i < NET_IPV6_FRAGMENTS_MAX_PKT && reass->pkt[i]; i++) {
 		offset = net_pkt_ipv6_fragment_offset(reass->pkt[i]);
+		len    = net_pkt_get_len(reass->pkt[i]) - net_pkt_ipv6_fragment_start(reass->pkt[i]) -
+			sizeof(struct net_ipv6_frag_hdr);
 
-		NET_DBG("pkt %p offset %u prev_len %d", reass->pkt[i],
-			offset, prev_len);
+		NET_DBG("pkt %p offset %u length %u current size %u", reass->pkt[i], offset, len, prev_len);
 
-		if (prev_len < offset) {
-			/* Something wrong with the offset value */
+		/* Verify that the fragments are contiguous */
+		if(offset != prev_len) {
 			return false;
 		}
 
-		prev_len = net_pkt_get_len(reass->pkt[i]);
+		prev_len += len;
 	}
 
 	return true;
@@ -485,6 +482,12 @@ enum net_verdict net_ipv6_handle_fragment_hdr(struct net_pkt *pkt,
 			if (net_pkt_ipv6_fragment_offset(reass->pkt[i]) <
 			    net_pkt_ipv6_fragment_offset(pkt)) {
 				continue;
+			}
+			
+			if (net_pkt_ipv6_fragment_offset(reass->pkt[i]) ==
+			    net_pkt_ipv6_fragment_offset(pkt)) {
+				net_pkt_unref(pkt);
+				goto accept;
 			}
 
 			/* Make room for this fragment. If there is no room,

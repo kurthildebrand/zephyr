@@ -113,7 +113,11 @@ enum net_verdict icmpv6_handle_echo_request(struct net_pkt *pkt,
 
 	ARG_UNUSED(icmp_hdr);
 
-	NET_DBG("Received Echo Request from %s to %s",
+	NET_PKT_DATA_ACCESS_DEFINE(echo_access, struct net_icmpv6_echo_req);
+	struct net_icmpv6_echo_req* echo_req = net_pkt_get_data(pkt, &echo_access);
+	
+	NET_DBG("Received Echo Request seq: %d from %s to %s",
+		!echo_req ? -1 : ntohs(echo_req->sequence),
 		log_strdup(net_sprint_ipv6_addr(&ip_hdr->src)),
 		log_strdup(net_sprint_ipv6_addr(&ip_hdr->dst)));
 

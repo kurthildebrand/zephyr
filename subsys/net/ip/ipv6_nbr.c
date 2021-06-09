@@ -33,6 +33,7 @@ LOG_MODULE_DECLARE(net_ipv6, CONFIG_NET_IPV6_LOG_LEVEL);
 #include "6lo.h"
 #include "route.h"
 #include "net_stats.h"
+#include "hyperspace.h"
 
 /* Timeout value to be used when allocating net buffer during various
  * neighbor discovery procedures.
@@ -853,6 +854,16 @@ ignore_frag_error:
 			       NET_IF_POINTOPOINT)) {
 		return NET_OK;
 	}
+
+	/* NOTE: added to support hyperspace routing */
+	#if defined(CONFIG_HYPERSPACE)
+	if(net_if_flag_is_set(net_pkt_iface(pkt), NET_IF_HYPERSPACE)) {
+		return hyperspace_send(pkt);
+		// if(hyperspace_send(pkt) == NET_OK) {
+		// 	return NET_OK;
+		// }
+	}
+	#endif
 
 	if (net_if_ipv6_addr_onlink(&iface, &ip_hdr->dst)) {
 		nexthop = &ip_hdr->dst;

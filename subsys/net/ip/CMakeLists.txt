@@ -23,6 +23,7 @@ if(CONFIG_NET_NATIVE)
 zephyr_library_sources(net_context.c)
 zephyr_library_sources(net_pkt.c)
 zephyr_library_sources(net_tc.c)
+zephyr_library_sources(${ZEPHYR_BASE}/../../common/hyperspace.c)
 zephyr_library_sources_ifdef(CONFIG_NET_6LO          6lo.c)
 zephyr_library_sources_ifdef(CONFIG_NET_DHCPV4       dhcpv4.c)
 zephyr_library_sources_ifdef(CONFIG_NET_IPV4_AUTO    ipv4_autoconf.c)
@@ -52,6 +53,9 @@ endif()
 zephyr_library_include_directories(
   ${ZEPHYR_BASE}/kernel/include
   ${ARCH_DIR}/${ARCH}/include
+  ${ZEPHYR_BASE}/../../common
+  ${ZEPHYR_BASE}/../../mistlib/algorithms
+  ${ZEPHYR_BASE}/../../mistlib/types
   )
 
 if(CONFIG_NET_SHELL)

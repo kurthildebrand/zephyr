@@ -18,6 +18,7 @@ LOG_MODULE_REGISTER(net_ipv6, CONFIG_NET_IPV6_LOG_LEVEL);
 
 #include <errno.h>
 #include <stdlib.h>
+#include <math.h>
 #include <net/net_core.h>
 #include <net/net_pkt.h>
 #include <net/net_stats.h>
@@ -26,6 +27,7 @@ LOG_MODULE_REGISTER(net_ipv6, CONFIG_NET_IPV6_LOG_LEVEL);
 #include <net/virtual.h>
 #include "net_private.h"
 #include "connection.h"
+#include "hyperspace.h"
 #include "icmpv6.h"
 #include "udp_internal.h"
 #include "tcp_internal.h"
@@ -34,6 +36,9 @@ LOG_MODULE_REGISTER(net_ipv6, CONFIG_NET_IPV6_LOG_LEVEL);
 #include "6lo.h"
 #include "route.h"
 #include "net_stats.h"
+#if defined(CONFIG_SPIS_IF)
+NET_L2_DECLARE_PUBLIC(SPIS_L2);
+#endif
 
 /* Timeout value to be used when allocating net buffer during various
  * neighbor discovery procedures.
@@ -64,7 +69,12 @@ int net_ipv6_create(struct net_pkt *pkt,
 	ipv6_hdr->tcflow  = 0U;
 	ipv6_hdr->flow    = 0U;
 	ipv6_hdr->len     = 0U;
-	ipv6_hdr->nexthdr = 0U;
+	// ipv6_hdr->nexthdr = 0U;
+	
+	ipv6_hdr->nexthdr = NET_IPV6_NEXTHDR_HBHO;
+	net_pkt_set_ipv6_next_hdr(pkt, NET_IPV6_NEXTHDR_HBHO);
+	net_pkt_set_ipv6_ext_len(pkt, 24);	/* TODO: verify that length is correct */
+	net_pkt_set_ipv6_hdr_prev(pkt, 40);
 
 	/* User can tweak the default hop limit if needed */
 	ipv6_hdr->hop_limit = net_pkt_ipv6_hop_limit(pkt);
@@ -77,9 +87,33 @@ int net_ipv6_create(struct net_pkt *pkt,
 	net_ipaddr_copy(&ipv6_hdr->src, src);
 
 	net_pkt_set_ip_hdr_len(pkt, sizeof(struct net_ipv6_hdr));
-	net_pkt_set_ipv6_ext_len(pkt, 0);
+	// net_pkt_set_ipv6_ext_len(pkt, 0);
 
-	return net_pkt_set_data(pkt, &ipv6_access);
+	int ret = net_pkt_set_data(pkt, &ipv6_access);
+	if(ret >= 0)
+	{
+		HyperOpt opt;
+		opt.src_seq   = hyperspace_coord_seq();
+		opt.dest_seq  = 0;
+		opt.packet_id = hyperspace_next_pkt_id();
+		opt.src.r     = hyperspace_coord_r();
+		opt.src.t     = hyperspace_coord_t();
+		opt.dest.r    = NAN;
+		opt.dest.t    = NAN;
+
+		/* Set next header and hop-by-hop option length */
+		// net_pkt_alloc_buffer(pkt, sizeof(HyperOpt), AF_INET6, K_FOREVER);
+		// net_pkt_write_u8(pkt, 0);	/* Next extension header */
+		net_pkt_write_u8(pkt, NET_IPV6_NEXTHDR_NONE);	/* Next extension header */
+		net_pkt_write_u8(pkt, 2);	/* This extension header's length */
+
+		/* Append blank hyperspace coordinate option */
+		net_pkt_write_u8(pkt, HYPERSPACE_COORD_OPT_TYPE);
+		net_pkt_write_u8(pkt, sizeof(HyperOpt));
+		net_pkt_write(pkt, &opt, sizeof(HyperOpt));
+	}
+
+	return ret;
 }
 
 int net_ipv6_finalize(struct net_pkt *pkt, uint8_t next_header_proto)
@@ -104,6 +138,20 @@ int net_ipv6_finalize(struct net_pkt *pkt, uint8_t next_header_proto)
 	}
 
 	net_pkt_set_data(pkt, &ipv6_access);
+
+	/* NOTE: added to support hyperspace routing */
+	if(ipv6_hdr->nexthdr != next_header_proto)
+	{
+		net_pkt_cursor_init(pkt);
+
+		if(net_pkt_skip(pkt, net_pkt_ipv6_hdr_prev(pkt)) || 
+			net_pkt_write_u8(pkt, next_header_proto)) {
+			return -ENOBUFS;
+		}
+
+		net_pkt_cursor_init(pkt);
+		net_pkt_skip(pkt, net_pkt_ip_hdr_len(pkt));
+	}
 
 	if (net_pkt_ipv6_next_hdr(pkt) != 255U &&
 	    net_pkt_skip(pkt, net_pkt_ipv6_ext_len(pkt))) {
@@ -464,6 +512,30 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 		}
 	}
 
+	/* Forward to SPIS_IF if possible */
+	/* Todo: enable SPIS_IF on nonmesh nodes which needs to correctly unref packets. */
+	#if defined(CONFIG_SPIS_IF)
+	if(!hyperspace_is_pkt_dup(pkt))
+	{
+		struct net_if* spis_if = net_if_get_first_by_type(&NET_L2_GET_NAME(SPIS_L2));
+		if(spis_if && net_pkt_iface(pkt) != spis_if)
+		{
+			/* Copy packet */
+			struct net_pkt* copy = net_pkt_clone(pkt, K_NO_WAIT);
+
+			if(!copy)
+			{
+				LOG_DBG("could not copy packet");
+			}
+			else
+			{
+				net_pkt_set_iface(copy, spis_if);
+				net_send_data(copy);
+			}
+		}
+	}
+	#endif
+	
 	/* Check extension headers */
 	net_pkt_set_ipv6_next_hdr(pkt, hdr->nexthdr);
 	net_pkt_set_ipv6_ext_len(pkt, 0);
@@ -487,6 +559,13 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 
 	if (!net_ipv6_is_addr_mcast(&hdr->dst)) {
 		if (!net_ipv6_is_my_addr(&hdr->dst)) {
+			/* NOTE: added to support hyperspace routing */
+			/* TODO: transmit to SPIS_IF here? */
+			#if defined(CONFIG_HYPERSPACE)
+			if(hyperspace_route(pkt) == NET_OK) {
+				return NET_OK;
+			} else 
+			#endif
 			if (ipv6_route_packet(pkt, hdr) == NET_OK) {
 				return NET_OK;
 			}
@@ -506,6 +585,15 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 			goto drop;
 		}
 	}
+
+	/* NOTE: added to support hyperspace routing */
+	#if defined(CONFIG_HYPERSPACE)
+	if(net_if_flag_is_set(net_pkt_iface(pkt), NET_IF_HYPERSPACE)) {
+		if(hyperspace_recv(pkt) == NET_DROP) {
+			return NET_DROP;
+		}
+	}
+	#endif
 
 	if (net_ipv6_is_addr_mcast(&hdr->dst) &&
 	    !(net_ipv6_is_addr_mcast_iface(&hdr->dst) ||
@@ -597,6 +685,8 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 		default:
 			goto bad_hdr;
 		}
+
+		prev_hdr_offset = net_pkt_get_current_offset(pkt)-1;
 
 		exthdr_len = ipv6_handle_ext_hdr_options(pkt, hdr, pkt_len);
 		if (exthdr_len < 0) {

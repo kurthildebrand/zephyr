@@ -1129,7 +1129,8 @@ int net_pkt_alloc_buffer(struct net_pkt *pkt,
 	}
 
 	/* Calculate the maximum that can be allocated depending on size */
-	alloc_len = pkt_buffer_length(pkt, size + hdr_len, proto, alloc_len);
+	/* NOTE: added to support hyperspace routing */
+	alloc_len = pkt_buffer_length(pkt, size + hdr_len + 24, proto, alloc_len);
 
 	NET_DBG("Data allocation maximum size %zu (requested %zu)",
 		alloc_len, size);
@@ -1610,21 +1611,21 @@ static int net_pkt_cursor_operate(struct net_pkt *pkt,
 
 int net_pkt_skip(struct net_pkt *pkt, size_t skip)
 {
-	NET_DBG("pkt %p skip %zu", pkt, skip);
+	// NET_DBG("pkt %p skip %zu", pkt, skip);
 
 	return net_pkt_cursor_operate(pkt, NULL, skip, false, true);
 }
 
 int net_pkt_memset(struct net_pkt *pkt, int byte, size_t amount)
 {
-	NET_DBG("pkt %p byte %d amount %zu", pkt, byte, amount);
+	// NET_DBG("pkt %p byte %d amount %zu", pkt, byte, amount);
 
 	return net_pkt_cursor_operate(pkt, &byte, amount, false, true);
 }
 
 int net_pkt_read(struct net_pkt *pkt, void *data, size_t length)
 {
-	NET_DBG("pkt %p data %p length %zu", pkt, data, length);
+	// NET_DBG("pkt %p data %p length %zu", pkt, data, length);
 
 	return net_pkt_cursor_operate(pkt, data, length, true, false);
 }
@@ -1667,7 +1668,7 @@ int net_pkt_read_be32(struct net_pkt *pkt, uint32_t *data)
 
 int net_pkt_write(struct net_pkt *pkt, const void *data, size_t length)
 {
-	NET_DBG("pkt %p data %p length %zu", pkt, data, length);
+	// NET_DBG("pkt %p data %p length %zu", pkt, data, length);
 
 	if (data == pkt->cursor.pos && net_pkt_is_contiguous(pkt, length)) {
 		return net_pkt_skip(pkt, length);
