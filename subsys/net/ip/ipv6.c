@@ -520,8 +520,8 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 		struct net_if* spis_if = net_if_get_first_by_type(&NET_L2_GET_NAME(SPIS_L2));
 		if(spis_if && net_pkt_iface(pkt) != spis_if)
 		{
-			/* Copy packet */
-			struct net_pkt* copy = net_pkt_clone(pkt, K_NO_WAIT);
+			/* Shallow copy packet */
+			struct net_pkt* copy = net_pkt_shallow_clone(pkt, K_NO_WAIT);
 
 			if(!copy)
 			{
@@ -529,6 +529,7 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 			}
 			else
 			{
+				net_pkt_set_forwarding(copy, true);
 				net_pkt_set_iface(copy, spis_if);
 				net_send_data(copy);
 			}
@@ -556,6 +557,23 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 			goto drop;
 		}
 	}
+
+	#if defined(CONFIG_HYPERSPACE)
+	if(net_ipv6_is_addr_mcast(&hdr->dst)) {
+		/* Shallow copy packet */
+		struct net_pkt* copy = net_pkt_shallow_clone(pkt, K_NO_WAIT);
+
+		if(!copy)
+		{
+			LOG_DBG("could not copy packet");
+		}
+		else if(hyperspace_route(copy) == NET_DROP)
+		{
+			net_pkt_unref(copy);
+			// goto drop;
+		}
+	}
+	#endif
 
 	if (!net_ipv6_is_addr_mcast(&hdr->dst)) {
 		if (!net_ipv6_is_my_addr(&hdr->dst)) {
