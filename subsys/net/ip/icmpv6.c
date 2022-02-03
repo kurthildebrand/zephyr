@@ -115,7 +115,7 @@ enum net_verdict icmpv6_handle_echo_request(struct net_pkt *pkt,
 
 	NET_PKT_DATA_ACCESS_DEFINE(echo_access, struct net_icmpv6_echo_req);
 	struct net_icmpv6_echo_req* echo_req = net_pkt_get_data(pkt, &echo_access);
-	
+
 	NET_DBG("Received Echo Request seq: %d from %s to %s",
 		!echo_req ? -1 : ntohs(echo_req->sequence),
 		log_strdup(net_sprint_ipv6_addr(&ip_hdr->src)),
@@ -419,6 +419,7 @@ enum net_verdict net_icmpv6_input(struct net_pkt *pkt,
 	}
 
 	if (net_calc_chksum_icmpv6(pkt) != 0U) {
+		net_pkt_hexdump(pkt, "invalid checksum");
 		NET_DBG("DROP: invalid checksum");
 		goto drop;
 	}
